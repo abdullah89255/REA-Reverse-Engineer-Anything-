@@ -465,4 +465,816 @@ CLI + পরে AI coding agent সংযুক্ত করব
 পরবর্তী ধাপ দেখান
 
 মনে রাখবেন: REA-এর সব analysis feature চালাতে Ghidra বা AI agent আবশ্যক নয়। কোনটি প্রয়োজন হবে তা নির্ভর করে আপনি JavaScript application, native binary, নাকি website পরীক্ষা করছেন তার ওপর।
+# Complete REA + Ghidra + Claude Code Setup on Parrot OS
 
+
+
+Step-by-step installation guide
+
+Reverse engineering lab
+
+
+
+আপনার লক্ষ্য হলো এমন একটি integrated reverse-engineering environment তৈরি করা, যেখানে:
+
+- REA বিভিন্ন file format ও artifact analyze করবে।
+- Ghidra native executable-এর disassembly ও decompilation করবে।
+- Claude Code AI agent হিসেবে REA-এর analysis tools ব্যবহার করবে।
+- MCP REA এবং Claude Code-এর মধ্যে communication তৈরি করবে।
+- Python automation এবং additional analysis-এর কাজে ব্যবহার হবে।
+
+আমরা প্রথমে installation, তারপর integration, এরপর testing এবং শেষে বাস্তব analysis exercise করব।
+
+Final architecture
+
+Claude Code
+
+AI investigation and reasoning
+
+MCP connection
+
+REA
+
+Analysis tools, evidence and artifact inspection
+
+Ghidra
+
+Native binary analysis and decompilation
+
+## Phase 1 — Prepare Parrot OS
+
+### Step 1. Update the system
+
+Open your Parrot OS terminal:
+
+```
+sudo apt update
+
+sudo apt full-upgrade -y
+```
+
+Install dependencies:
+
+```
+sudo apt install -y \
+  git curl wget unzip \
+  build-essential \
+  python3 python3-pip python3-venv \
+  procps file jq
+```
+
+Check system architecture:
+
+```
+uname -m
+```
+
+Expected output for a typical 64-bit installation:
+
+```
+x86_64
+```
+
+### Step 2. Install Java
+
+Ghidra requires a compatible JDK.
+
+```
+sudo apt install -y openjdk-21-jdk
+```
+
+Check:
+
+```
+java -version
+javac -version
+```
+
+Expected:
+
+```
+openjdk version "21..."
+```
+
+If Parrot's repositories do not provide OpenJDK 21, use a compatible JDK distribution rather than installing an incompatible Java version.
+
+### Step 3. Install Node.js
+
+REA and Claude Code require Node.js-based tooling.
+
+Check your existing version:
+
+```
+node -v
+npm -v
+```
+
+For REA, use a Node.js release supported by the repository's current requirements. Node.js 22 or newer is a suitable starting point, subject to its declared engine requirement.
+
+If Node.js is missing, install it using the official instructions:
+
+[Node.js official downloads](https://nodejs.org/en/download?utm_source=chatgpt.com)
+
+Then verify:
+
+```
+node --version
+npm --version
+```
+
+## Phase 2 — Install Ghidra
+
+### Step 4. Download Ghidra
+
+[Install Ghidra on Linux | Flathub](https://images.openai.com/static-rsc-4/Eu5GrMOGCTB2eaUfJQr5Yg4dGU0F0PRPmHxjunwUAZeCpCae8IK2aH9jc33mAfQf9U29YCd80mXUrZLKGnrxavQ97X8gaVLnGsPKQN0msHZtRudrN9kdVnXxGG7WVseGcgqDpzQONw1IvNfclGA1iMouxqunqMGHLTW-RE7K4UU?purpose=inline)
+
+Ghidra
+
+Use the 12.1.x release supported by REA's current documentation.
+
+[Official Ghidra releases](https://github.com/NationalSecurityAgency/ghidra/releases?utm_source=chatgpt.com)
+
+REA's current Ghidra documentation specifies:
+
+- Ghidra 12.1.x
+- 64-bit JDK 21 or newer
+- `analyzeHeadless` executable
+- Native decompiler for your architecture
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+Download and extract the official release archive. For example, if the archive is in Downloads:
+
+```
+mkdir -p ~/Applications
+
+cd ~/Applications
+
+unzip ~/Downloads/ghidra_12.1.4_PUBLIC_*.zip
+```
+
+Check the extracted directory:
+
+```
+ls ~/Applications/
+```
+
+Example:
+
+```
+ghidra_12.1.4_PUBLIC
+```
+
+### Step 5. Configure Ghidra environment variables
+
+Run:
+
+```
+nano ~/.zshrc
+```
+
+Add:
+
+```
+# Java configuration
+export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
+
+# Ghidra configuration
+export GHIDRA_INSTALL_DIR="$HOME/Applications/ghidra_12.1.4_PUBLIC"
+
+# Java PATH
+export PATH="$JAVA_HOME/bin:$GHIDRA_INSTALL_DIR/support:$PATH"
+
+# Ghidra memory
+export GHIDRA_HEADLESS_MAXMEM="2G"
+```
+
+Save with `CTRL + O`, Enter, and `CTRL + X`.
+
+Reload:
+
+```
+source ~/.zshrc
+```
+
+Verify:
+
+```
+echo "$JAVA_HOME"
+
+echo "$GHIDRA_INSTALL_DIR"
+
+ls "$GHIDRA_INSTALL_DIR/support/analyzeHeadless"
+```
+
+Also check the native decompiler:
+
+```
+find "$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler" \
+  -type f -name decompile
+```
+
+### Step 6. Test Ghidra independently
+
+Launch the graphical interface:
+
+```
+"$GHIDRA_INSTALL_DIR/ghidraRun"
+```
+
+Then test the headless analyzer:
+
+```
+"$GHIDRA_INSTALL_DIR/support/analyzeHeadless" \
+  --help
+```
+
+
+
+Expected
+
+&#x20;Ghidra should start without a Java version or missing-decompiler error.
+
+
+
+## Phase 3 — Install Claude Code
+
+### Step 7. Install Claude Code
+
+Official installation method:
+
+```
+npm install -g @anthropic-ai/claude-code
+```
+
+Do not use `sudo npm install -g`.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://docs.anthropic.com\&sz=32)
+
+Anthropic
+
+
+
+Check:
+
+```
+claude --version
+
+claude doctor
+```
+
+Start Claude Code:
+
+```
+claude
+```
+
+Follow the authentication process using your eligible Claude account or Anthropic Console.
+
+Official documentation: [Claude Code installation and authentication](https://docs.anthropic.com/en/docs/claude-code/getting-started?utm_source=chatgpt.com).
+
+### Step 8. Verify Claude Code
+
+```
+claude --help
+```
+
+Then:
+
+```
+claude mcp
+```
+
+This opens the MCP management interface. We will use REA's guided setup instead of manually creating an MCP configuration.
+
+## Phase 4 — Install REA and connect Claude Code
+
+[ShadowArcanist](https://images.openai.com/static-rsc-4/W75sXYpRjTR-r4rEpXW1AkL-5z2QJ9BLjfpnJkZ_g6x2u_yIi7l5de3PAVEOpYd0xCgvtf_tMTSpdo5Et3JZSQ69RaRV4EFvgGd5c5AzLkzhA5Qsm5F9hwPpIZPPR9XF4c4hcg0-4I679yCRHttxOV0MNLsttG3KvuLy8U9JLNU?purpose=inline)
+
+REA – Reverse Engineer Anything
+
+Official repository and npm distribution
+
+[GitHub repository](https://github.com/morluto/rea?utm_source=chatgpt.com) · [npm package](https://www.npmjs.com/package/rea-agents?utm_source=chatgpt.com)
+
+### Step 9. Install REA
+
+I recommend a global installation because you will use REA frequently from your terminal.
+
+```
+npm install --global rea-agents
+```
+
+Verify:
+
+```
+rea --help
+```
+
+### Step 10. Verify Ghidra before connecting
+
+Run:
+
+```
+rea doctor --json
+```
+
+For Ghidra-specific diagnostics, run:
+
+```
+rea doctor --provider ghidra --json
+```
+
+If you see missing Ghidra or Java prerequisites, correct those first.
+
+### Step 11. Connect REA to Claude Code
+
+Run:
+
+```
+rea setup --client claude_code
+```
+
+The setup process should:
+
+1. Detect Claude Code.
+2. Detect your Ghidra installation.
+3. Inspect the proposed MCP registration.
+4. Configure REA for Claude Code.
+5. Install REA's matching workflow instructions.
+6. Ask for your approval before applying changes.
+
+Carefully review the displayed configuration paths and environment variables before approving.
+
+REA's setup configures the agent; it does not install Ghidra or Java.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+### Step 12. Verify the integration
+
+Run:
+
+```
+rea doctor --json
+```
+
+Then:
+
+```
+rea providers --json
+```
+
+And:
+
+```
+rea capabilities --json
+```
+
+Check that the diagnostics report a supported Ghidra installation and that Claude Code has an REA registration.
+
+Restart Claude Code completely:
+
+```
+exit
+```
+
+Then:
+
+```
+claude
+```
+
+Inside Claude Code, run:
+
+```
+/mcp
+```
+
+You should see the REA server and its available tools.
+
+
+
+Integration target
+
+&#x20;Claude Code → REA MCP → Ghidra.
+
+
+
+Important: REA uses lazy Ghidra startup. Seeing the MCP connection does not prove Ghidra analysis works; the first native analysis request must also succeed.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+## Phase 5 — Test REA + Ghidra from terminal
+
+### Step 13. Create a safe test binary
+
+Instead of testing with an unknown executable, create a small C program.
+
+```
+mkdir -p ~/REA-Lab
+cd ~/REA-Lab
+```
+
+Create the source file:
+
+```
+nano test.c
+```
+
+Paste:
+
+```
+#include <stdio.h>
+#include <string.h>
+
+int calculate(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    char username[32];
+
+    strcpy(username, "Mamun");
+
+    printf("Welcome %s\n", username);
+
+    int result = calculate(10, 20);
+
+    printf("Result: %d\n", result);
+
+    return 0;
+}
+```
+
+Compile:
+
+```
+gcc -g -O0 -fno-pie -no-pie test.c -o test
+```
+
+Check:
+
+```
+file test
+```
+
+Test binary created
+
+### Step 14. Run REA analysis
+
+```
+rea analyze "$HOME/REA-Lab/test" \
+  --provider ghidra \
+  --json
+```
+
+This should initiate Ghidra-backed native analysis.
+
+### Step 15. Search for functions
+
+```
+rea search "$HOME/REA-Lab/test" "main" \
+  --provider ghidra \
+  --json
+```
+
+### Step 16. Generate function dossier
+
+```
+rea function "$HOME/REA-Lab/test" main \
+  --provider ghidra \
+  --json
+```
+
+Look for:
+
+- Function name
+- Function address
+- Assembly instructions
+- Call relationships
+- References
+- Pseudocode evidence
+
+### Step 17. Decompile a function
+
+```
+rea decompile "$HOME/REA-Lab/test" \
+  --procedure main \
+  --provider ghidra \
+  --json
+```
+
+### Step 18. Cross-reference analysis
+
+First identify an address from your analysis results, then:
+
+```
+rea xrefs "$HOME/REA-Lab/test" 0xADDRESS \
+  --provider ghidra \
+  --json
+```
+
+Replace `0xADDRESS` with an actual address from your binary.
+
+### Step 19. Trace code
+
+```
+rea trace "$HOME/REA-Lab/test" "calculate" \
+  --provider ghidra \
+  --json
+```
+
+These commands are documented in REA's CLI guide.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+
+
+## Phase 6 — Test AI analysis using Claude Code
+
+### Step 20. Open your analysis directory
+
+```
+cd ~/REA-Lab
+
+claude
+```
+
+Check the MCP connection:
+
+```
+/mcp
+```
+
+### Step 21. Run your first AI reverse-engineering investigation
+
+Copy this prompt into Claude Code:
+
+I am performing an authorized reverse-engineering analysis of the test binary located at:
+
+\~/REA-Lab/test
+
+Use the connected REA MCP server and Ghidra provider.
+
+First:
+
+1. Inspect the available REA MCP tools.
+2. Check which analysis providers are available.
+3. Open the binary using Ghidra.
+4. Wait for analysis to complete.
+
+Then perform:
+
+1. Binary metadata analysis.
+2. Function inventory.
+3. Entry-point identification.
+4. Function-by-function analysis.
+5. Assembly and pseudocode inspection.
+6. String analysis.
+7. Imported function analysis.
+8. Caller and callee analysis.
+9. Cross-reference investigation.
+10. Static security weakness investigation.
+
+Pay particular attention to:
+
+- strcpy()
+- Buffer sizes
+- Input validation
+- Memory operations
+- Function arguments
+- Return values
+
+For every potential weakness:
+
+- Provide function name and address.
+- Show supporting pseudocode.
+- Explain the root cause.
+- Distinguish confirmed issues from theoretical risks.
+- Recommend remediation.
+
+Do not execute the target binary.\
+Do not modify the executable.\
+Preserve the analysis evidence.
+
+Save the final report as:
+
+\~/REA-Lab/REA-Analysis-Report.md
+
+### Step 22. Ask Claude to investigate individual functions
+
+Try these prompts individually:
+
+Function analysis
+
+```
+Use REA and Ghidra to explain every important
+function in this binary.
+
+Explain the function purpose, parameters,
+return values and relationships.
+```
+
+Memory analysis
+
+```
+Investigate all memory-related operations.
+
+Identify unsafe memory functions,
+buffer sizes and possible boundary issues.
+
+Provide evidence from Ghidra pseudocode.
+```
+
+Call graph analysis
+
+```
+Build a call graph of the important functions.
+
+Identify:
+- Entry points
+- Callers
+- Callees
+- Shared functions
+- Important execution paths
+
+Explain the relationships.
+```
+
+Security investigation
+
+```
+Perform a static security review.
+
+Investigate:
+- Buffer overflow indicators
+- Integer overflow indicators
+- Format string risks
+- Unsafe memory operations
+- Hardcoded secrets
+- Authentication weaknesses
+
+Provide evidence and confidence levels.
+Do not exploit anything.
+```
+
+## Phase 7 — Enable additional REA features
+
+For a broader REA environment, use the following checklist.
+
+Integration checklist
+
+0/10 completed
+
+Node.js and npm installed
+
+Ghidra 12.1.x installed
+
+JDK 21+ configured
+
+Ghidra native decompiler verified
+
+Claude Code authenticated
+
+REA CLI installed
+
+REA MCP connected to Claude Code
+
+Ghidra provider passes doctor
+
+Native test binary analyzed successfully
+
+Claude generated an evidence-based report
+
+### Other REA capabilities
+
+Once the core integration works, investigate these additional features:
+
+| Feature             | Example use                             |
+| ------------------- | --------------------------------------- |
+| JavaScript analysis | Inspect application modules and imports |
+| Electron analysis   | Investigate IPC boundaries              |
+| APK analysis        | Inspect Android application structure   |
+| .NET analysis       | Examine assemblies and methods          |
+| Firmware analysis   | Inspect firmware components             |
+| ELF analysis        | Inspect Linux executable structure      |
+| PE analysis         | Inspect Windows executable structure    |
+| PCAP/HAR            | Investigate captured network behavior   |
+| Crash analysis      | Examine crash metadata                  |
+| Python bytecode     | Inspect `.pyc` files                    |
+
+These do not all require Ghidra. Their individual dependencies and supported operations are described in the [REA documentation](https://github.com/morluto/rea/tree/main/docs?utm_source=chatgpt.com).&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+
+
+## Phase 8 — Troubleshooting
+
+| Problem                   | What to check                        |
+| ------------------------- | ------------------------------------ |
+| `rea: command not found`  | npm global PATH                      |
+| Ghidra unavailable        | `GHIDRA_INSTALL_DIR`                 |
+| Java version error        | JDK 21+ and `JAVA_HOME`              |
+| `analyzeHeadless` missing | Ghidra extraction directory          |
+| Decompiler unavailable    | Native decompiler architecture       |
+| MCP server missing        | `rea setup --client claude_code`     |
+| Claude cannot see tools   | Restart Claude Code and check `/mcp` |
+| Ghidra startup timeout    | Increase REA startup timeout         |
+| Linux process errors      | Check `procps` and `ps`              |
+
+Useful diagnostic commands:
+
+```
+rea doctor --provider ghidra --json
+```
+
+```
+rea doctor --client claude_code --json
+```
+
+```
+rea doctor --skill --json
+```
+
+```
+rea providers --json
+```
+
+If you have a small-memory VM, you can reduce Ghidra's Java heap:
+
+```
+export GHIDRA_HEADLESS_MAXMEM=512M
+```
+
+For large binaries, increase it according to available RAM. REA's default startup deadline is 330 seconds; large imports may need more time.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+## Official reference links
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+REA GitHub
+
+Source code and updates
+
+[Open repository](https://github.com/morluto/rea?utm_source=chatgpt.com)
+
+[image](https://www.google.com/s2/favicons?domain=https://ghidra-sre.org\&sz=32)
+
+Ghidra
+
+Official installation and releases
+
+[Download releases](https://github.com/NationalSecurityAgency/ghidra/releases?utm_source=chatgpt.com)
+
+[image](https://www.google.com/s2/favicons?domain=https://docs.anthropic.com\&sz=32)
+
+Claude Code
+
+Installation and MCP documentation
+
+[Official documentation](https://docs.anthropic.com/en/docs/claude-code?utm_source=chatgpt.com)
+
+[image](https://www.google.com/s2/favicons?domain=https://nodejs.org\&sz=32)
+
+Node.js
+
+Supported runtime
+
+[Download Node.js](https://nodejs.org/en/download?utm_source=chatgpt.com)
+
+One important correction to keep in mind: REA's current repository requires Node.js 22.x (22.23.4 or newer), 24.x (24.22.1 or newer), or 26.12.1+. Check this before installing; merely having Node.js 18 or 20 is not sufficient.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+
+
+## Recommended next step
+
+I can also help you maintain this environment by checking REA releases, Ghidra compatibility and Claude Code integration changes every week.
+
+🔍Check REA updates weeklyTap to set up
+
+My recommendation: Complete Phases 1–4 first. Once `rea doctor --provider ghidra --json` and Claude Code's `/mcp` both pass, proceed to the test binary. This will make troubleshooting much easier.
